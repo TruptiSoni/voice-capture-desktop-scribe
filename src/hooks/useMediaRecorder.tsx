@@ -18,6 +18,28 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
   const [combinedStream, setCombinedStream] = useState<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
+  // Define stopScreenRecording first since it's used by other functions
+  const stopScreenRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      
+      // Stop all tracks in the streams
+      if (screenStream) {
+        screenStream.getTracks().forEach(track => {
+          track.stop();
+        });
+      }
+      
+      setIsRecording(false);
+      setIsPaused(false);
+      
+      toast({
+        title: "Recording Stopped",
+        description: "Your recording has been successfully captured."
+      });
+    }
+  }, [isRecording, screenStream]);
+
   const startScreenRecording = useCallback(async () => {
     try {
       const displayMediaOptions = {
@@ -100,7 +122,7 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
         variant: "destructive"
       });
     }
-  }, [options]);
+  }, [options, stopScreenRecording]);
 
   const toggleAudio = useCallback(async () => {
     if (isAudioEnabled && audioStream) {
