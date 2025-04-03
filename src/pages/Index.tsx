@@ -17,15 +17,21 @@ const Index = () => {
     pauseRecording,
     resumeRecording,
     toggleAudio,
-    saveRecording
+    saveRecording,
+    isElectronApp
   } = useMediaRecorder();
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col gap-8">
         <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight">Screen Recorder</h1>
-          <p className="text-muted-foreground mt-2">Capture your screen with audio in just a few clicks</p>
+          <h1 className="text-3xl font-bold tracking-tight">
+            {isElectronApp ? "Desktop Screen Recorder" : "Screen Recorder"}
+          </h1>
+          <p className="text-muted-foreground mt-2">
+            Capture your screen with audio in just a few clicks
+            {isElectronApp && " - Running as desktop app"}
+          </p>
         </div>
 
         <Card className="border border-border">
@@ -64,7 +70,7 @@ const Index = () => {
               <li>Toggle <strong>Enable Mic</strong> to record with audio</li>
               <li>Use <strong>Pause</strong> to temporarily stop recording</li>
               <li>Click <strong>Stop Screen</strong> when you're finished</li>
-              <li>Click <strong>Save Recording</strong> to download the video file</li>
+              <li>Click <strong>Save Recording</strong> to {isElectronApp ? "save the file" : "download the video file"}</li>
             </ol>
           </CardContent>
         </Card>

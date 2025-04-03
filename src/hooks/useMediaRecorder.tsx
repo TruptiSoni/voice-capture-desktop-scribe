@@ -1,4 +1,3 @@
-
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from '@/components/ui/use-toast';
 
@@ -6,6 +5,17 @@ interface UseMediaRecorderOptions {
   mimeType?: string;
   audioBitsPerSecond?: number;
   videoBitsPerSecond?: number;
+}
+
+interface ElectronAPI {
+  saveRecording: (blobBase64: string) => Promise<{success: boolean, filePath?: string, message?: string}>;
+  isElectron: boolean;
+}
+
+declare global {
+  interface Window {
+    electronAPI?: ElectronAPI;
+  }
 }
 
 const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
@@ -17,13 +27,12 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
   const [isAudioEnabled, setIsAudioEnabled] = useState(false);
   const [combinedStream, setCombinedStream] = useState<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
-  // Define stopScreenRecording function
   const stopScreenRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       
-      // Stop all tracks in the streams
       if (screenStream) {
         screenStream.getTracks().forEach(track => {
           track.stop();
@@ -50,23 +59,19 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
         audio: false,
       };
 
-      // Request screen capture permission
       const screenCaptureStream = await navigator.mediaDevices.getDisplayMedia(
         displayMediaOptions as DisplayMediaStreamConstraints
       );
       setScreenStream(screenCaptureStream);
 
-      // Create a new combined stream that we'll add audio to if needed
       const newCombinedStream = new MediaStream();
       
-      // Add all video tracks from screen capture
       screenCaptureStream.getVideoTracks().forEach(track => {
         newCombinedStream.addTrack(track);
       });
       
       setCombinedStream(newCombinedStream);
 
-      // Create and setup media recorder
       const recorder = new MediaRecorder(newCombinedStream, {
         mimeType: options.mimeType || 'video/webm;codecs=vp9,opus',
         videoBitsPerSecond: options.videoBitsPerSecond || 2500000,
@@ -105,11 +110,9 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
         });
       };
 
-      // Start recording
       mediaRecorderRef.current = recorder;
-      recorder.start(1000); // Collect data every second
-      
-      // Listen for the user ending the screen share
+      recorder.start(1000);
+
       screenCaptureStream.getVideoTracks()[0].onended = () => {
         stopScreenRecording();
       };
@@ -126,7 +129,6 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
 
   const toggleAudio = useCallback(async () => {
     if (isAudioEnabled && audioStream) {
-      // Remove audio
       audioStream.getTracks().forEach(track => {
         track.stop();
       });
@@ -137,11 +139,9 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
           combinedStream.removeTrack(track);
         });
         
-        // Recreate the media recorder with the updated stream if recording
         if (isRecording) {
           stopScreenRecording();
           
-          // Small delay to ensure the previous recorder is fully stopped
           setTimeout(() => {
             const recorder = new MediaRecorder(combinedStream, {
               mimeType: options.mimeType || 'video/webm;codecs=vp9,opus',
@@ -170,7 +170,6 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
       
     } else {
       try {
-        // Request microphone permission
         const micStream = await navigator.mediaDevices.getUserMedia({
           audio: true
         });
@@ -178,16 +177,13 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
         setAudioStream(micStream);
         
         if (combinedStream) {
-          // Add all audio tracks from microphone
           micStream.getAudioTracks().forEach(track => {
             combinedStream.addTrack(track);
           });
           
-          // Recreate the media recorder with the updated stream if recording
           if (isRecording) {
             stopScreenRecording();
             
-            // Small delay to ensure the previous recorder is fully stopped
             setTimeout(() => {
               const recorder = new MediaRecorder(combinedStream, {
                 mimeType: options.mimeType || 'video/webm;codecs=vp9,opus',
@@ -249,7 +245,7 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
     }
   }, [isRecording, isPaused]);
 
-  const saveRecording = useCallback(() => {
+  const saveRecording = useCallback(async () => {
     if (recordedChunks.length === 0) {
       toast({
         title: "No Recording Found",
@@ -259,12 +255,44 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
       return;
     }
     
-    // Combine all recorded chunks into a single blob
     const blob = new Blob(recordedChunks, {
       type: 'video/webm'
     });
-    
-    // Create a download link
+
+    if (isElectron && window.electronAPI) {
+      try {
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = async function() {
+          const base64data = reader.result as string;
+          const base64Content = base64data.split(',')[1];
+          
+          const result = await window.electronAPI.saveRecording(base64Content);
+          
+          if (result.success) {
+            toast({
+              title: "Recording Saved",
+              description: `Your recording has been saved to ${result.filePath}.`
+            });
+            setRecordedChunks([]);
+          } else {
+            toast({
+              title: "Save Failed",
+              description: result.message || "Failed to save the recording.",
+              variant: "destructive"
+            });
+          }
+        };
+      } catch (error) {
+        console.error("Error saving via Electron:", error);
+        browserDownload(blob);
+      }
+    } else {
+      browserDownload(blob);
+    }
+  }, [recordedChunks]);
+
+  const browserDownload = (blob: Blob) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.style.display = 'none';
@@ -274,7 +302,6 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
     document.body.appendChild(a);
     a.click();
     
-    // Clean up
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
     
@@ -283,12 +310,9 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
       description: "Your recording has been downloaded to your computer."
     });
     
-    // Clear recorded chunks after saving
     setRecordedChunks([]);
-    
-  }, [recordedChunks]);
+  };
 
-  // Clean up on unmount
   useEffect(() => {
     return () => {
       if (screenStream) {
@@ -311,7 +335,8 @@ const useMediaRecorder = (options: UseMediaRecorderOptions = {}) => {
     pauseRecording,
     resumeRecording,
     toggleAudio,
-    saveRecording
+    saveRecording,
+    isElectronApp: isElectron
   };
 };
 
